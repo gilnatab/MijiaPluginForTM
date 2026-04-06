@@ -4,6 +4,7 @@
 #include <chrono>
 #include <ctime>
 #include <filesystem>
+#include <iomanip>
 #include <sstream>
 #include <fstream>
 
@@ -22,6 +23,23 @@ std::wstring PowerHistory::FormatLocalTimestamp(double timestamp) {
     wchar_t buffer[32]{};
     wcsftime(buffer, _countof(buffer), L"%Y-%m-%d %H:%M:%S", &localTime);
     return buffer;
+}
+
+bool PowerHistory::TryParseLocalTimestamp(const std::wstring& text, double& timestamp) {
+    std::tm localTime{};
+    std::wistringstream iss(text);
+    iss >> std::get_time(&localTime, L"%Y-%m-%d %H:%M:%S");
+    if (iss.fail()) {
+        return false;
+    }
+
+    std::time_t timeValue = std::mktime(&localTime);
+    if (timeValue == static_cast<std::time_t>(-1)) {
+        return false;
+    }
+
+    timestamp = static_cast<double>(timeValue);
+    return true;
 }
 
 void PowerHistory::AddSample(double watts) {
@@ -134,8 +152,83 @@ void PowerHistory::SaveToFile(const std::wstring& filePath) const {
 }
 
 void PowerHistory::LoadFromFile(const std::wstring& filePath) {
+    if (filePath.empty()) {
+        return;
+    }
+
+    std::wifstream f(filePath);
+    if (!f.is_open()) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_realtime.clear();
+        m_longterm.clear();
+        m_pendingPersist.clear();
+        m_lastMinTs = 0.0;
+        return;
+    }
+
+    const double now = Now();
+    const double realtimeCutoff = now - 600.0;          // tooltip 最近10分钟
+    const double longCutoff = now - 7 * 24 * 3600.0;    // 保留最近7天分钟级样本
+
+    std::deque<PowerSample> loadedRealtime;
+    std::deque<PowerSample> loadedLongterm;
+    std::wstring line;
+    bool firstLine = true;
+    double lastMinTs = 0.0;
+
+    while (std::getline(f, line)) {
+        if (!line.empty() && line.back() == L'\r') {
+            line.pop_back();
+        }
+        if (line.empty()) {
+            continue;
+        }
+
+        if (firstLine) {
+            firstLine = false;
+            if (line == L"本地时间,功率(W)" || line == L"LocalTime,Watts") {
+                continue;
+            }
+        }
+
+        size_t commaPos = line.find(L',');
+        if (commaPos == std::wstring::npos) {
+            continue;
+        }
+
+        double timestamp = 0.0;
+        if (!TryParseLocalTimestamp(line.substr(0, commaPos), timestamp)) {
+            continue;
+        }
+
+        double watts = 0.0;
+        try {
+            watts = std::stod(line.substr(commaPos + 1));
+        } catch (...) {
+            continue;
+        }
+
+        PowerSample sample{ timestamp, watts };
+
+        if (sample.timestamp >= realtimeCutoff) {
+            loadedRealtime.push_back(sample);
+            while (loadedRealtime.size() > MAX_REALTIME) {
+                loadedRealtime.pop_front();
+            }
+        }
+
+        if (sample.timestamp >= longCutoff) {
+            loadedLongterm.push_back(sample);
+            while (loadedLongterm.size() > MAX_LONG) {
+                loadedLongterm.pop_front();
+            }
+            lastMinTs = std::floor(sample.timestamp / 60.0);
+        }
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
-    (void)filePath;
-    // CSV 历史文件仅用于追加导出，不在启动时回读。
+    m_realtime = std::move(loadedRealtime);
+    m_longterm = std::move(loadedLongterm);
     m_pendingPersist.clear();
+    m_lastMinTs = lastMinTs;
 }

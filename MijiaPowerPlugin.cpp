@@ -102,6 +102,10 @@ void CMijiaPowerPlugin::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* da
             m_initialized = true;
             ConfigManager::Instance().SetConfigDir(data);
             ConfigManager::Instance().Load();
+            auto& cfg = ConfigManager::Instance().Get();
+            if (cfg.enableRecording) {
+                m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
+            }
 
             // 启动采样线程
             StartSampling();
@@ -244,6 +248,10 @@ void CMijiaPowerPlugin::DataRequired() {
         GetCurrentDirectoryW(MAX_PATH, buf);
         ConfigManager::Instance().SetConfigDir(buf);
         ConfigManager::Instance().Load();
+        auto& cfg = ConfigManager::Instance().Get();
+        if (cfg.enableRecording) {
+            m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
+        }
         StartSampling();
     }
 }

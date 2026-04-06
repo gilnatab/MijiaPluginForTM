@@ -41,7 +41,7 @@ public:
     PowerStats GetStats(int seconds) const;       // 实时段
     PowerStats GetLongStats(int hours) const;     // 长期段
 
-    // 持久化（追加导出到 CSV 文件，不从磁盘加载）
+    // 持久化（追加导出到 CSV 文件；启动时按流式读取恢复近期汇总）
     void SaveToFile(const std::wstring& filePath) const;
     void LoadFromFile(const std::wstring& filePath);
 
@@ -54,5 +54,6 @@ private:
 
     static double Now();
     static std::wstring FormatLocalTimestamp(double timestamp);
+    static bool TryParseLocalTimestamp(const std::wstring& text, double& timestamp);
     PowerStats CalcStats(const std::vector<PowerSample>& pts) const;
 };
