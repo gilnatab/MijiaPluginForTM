@@ -8,6 +8,152 @@
 #include <sstream>
 #include <fstream>
 
+namespace {
+constexpr wchar_t kHistoryCsvHeader[] = L"本地时间,功率(W)";
+
+struct LocalMonthKey {
+    int year = 0;
+    int month = 0;
+};
+
+LocalMonthKey GetLocalMonthKey(double timestamp) {
+    std::time_t timeValue = static_cast<std::time_t>(timestamp);
+    std::tm localTime{};
+    localtime_s(&localTime, &timeValue);
+    return { localTime.tm_year + 1900, localTime.tm_mon + 1 };
+}
+
+LocalMonthKey NextMonth(LocalMonthKey value) {
+    ++value.month;
+    if (value.month > 12) {
+        value.month = 1;
+        ++value.year;
+    }
+    return value;
+}
+
+bool IsSameMonth(LocalMonthKey lhs, LocalMonthKey rhs) {
+    return lhs.year == rhs.year && lhs.month == rhs.month;
+}
+
+std::filesystem::path BuildMonthlyHistoryPath(const std::filesystem::path& basePath, LocalMonthKey month) {
+    std::wostringstream name;
+    name << basePath.stem().wstring()
+         << L"-" << std::setw(4) << std::setfill(L'0') << month.year
+         << L"-" << std::setw(2) << std::setfill(L'0') << month.month
+         << basePath.extension().wstring();
+    return basePath.parent_path() / name.str();
+}
+
+std::vector<std::filesystem::path> CollectRecoveryHistoryPaths(const std::wstring& filePath, double earliestTimestamp, double latestTimestamp) {
+    std::vector<std::filesystem::path> paths;
+    if (filePath.empty()) {
+        return paths;
+    }
+
+    const std::filesystem::path basePath(filePath);
+    std::error_code ec;
+    LocalMonthKey month = GetLocalMonthKey(earliestTimestamp);
+    const LocalMonthKey endMonth = GetLocalMonthKey(latestTimestamp);
+    while (true) {
+        auto monthlyPath = BuildMonthlyHistoryPath(basePath, month);
+        if (std::filesystem::exists(monthlyPath, ec)) {
+            paths.push_back(std::move(monthlyPath));
+        }
+        if (IsSameMonth(month, endMonth)) {
+            break;
+        }
+        month = NextMonth(month);
+    }
+
+    return paths;
+}
+
+void AppendRecoveredSample(std::deque<PowerSample>& buffer, const PowerSample& sample, size_t maxSize) {
+    const double minuteBucket = std::floor(sample.timestamp / 60.0);
+    if (!buffer.empty() && std::floor(buffer.back().timestamp / 60.0) == minuteBucket) {
+        buffer.back() = sample;
+        return;
+    }
+
+    buffer.push_back(sample);
+    while (buffer.size() > maxSize) {
+        buffer.pop_front();
+    }
+}
+
+bool TryParseCsvTimestamp(const std::wstring& text, double& timestamp) {
+    std::tm localTime{};
+    std::wistringstream iss(text);
+    iss >> std::get_time(&localTime, L"%Y-%m-%d %H:%M:%S");
+    if (iss.fail()) {
+        return false;
+    }
+
+    std::time_t timeValue = std::mktime(&localTime);
+    if (timeValue == static_cast<std::time_t>(-1)) {
+        return false;
+    }
+
+    timestamp = static_cast<double>(timeValue);
+    return true;
+}
+
+void LoadSamplesFromStream(std::wistream& stream,
+                           std::deque<PowerSample>& loadedRealtime,
+                           std::deque<PowerSample>& loadedLongterm,
+                           double realtimeCutoff,
+                           double longCutoff,
+                           double& lastMinTs) {
+    std::wstring line;
+    bool firstLine = true;
+
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') {
+            line.pop_back();
+        }
+        if (line.empty()) {
+            continue;
+        }
+
+        if (firstLine) {
+            firstLine = false;
+            if (line == kHistoryCsvHeader || line == L"LocalTime,Watts") {
+                continue;
+            }
+        }
+
+        size_t commaPos = line.find(L',');
+        if (commaPos == std::wstring::npos) {
+            continue;
+        }
+
+        double timestamp = 0.0;
+        if (!TryParseCsvTimestamp(line.substr(0, commaPos), timestamp)) {
+            continue;
+        }
+
+        double watts = 0.0;
+        try {
+            watts = std::stod(line.substr(commaPos + 1));
+        } catch (...) {
+            continue;
+        }
+
+        PowerSample sample{ timestamp, watts };
+
+        if (sample.timestamp >= realtimeCutoff) {
+            AppendRecoveredSample(loadedRealtime, sample, PowerHistory::MAX_REALTIME);
+        }
+
+        if (sample.timestamp >= longCutoff) {
+            AppendRecoveredSample(loadedLongterm, sample, PowerHistory::MAX_LONG);
+            lastMinTs = std::floor(sample.timestamp / 60.0);
+        }
+    }
+}
+}
+
 double PowerHistory::Now() {
     auto tp = std::chrono::system_clock::now().time_since_epoch();
     return std::chrono::duration<double>(tp).count();
@@ -123,30 +269,66 @@ void PowerHistory::SaveToFile(const std::wstring& filePath) const {
     if (filePath.empty()) return;
     if (m_pendingPersist.empty()) return;
 
-    std::filesystem::path path(filePath);
-    auto parent = path.parent_path();
+    std::filesystem::path basePath(filePath);
+    auto parent = basePath.parent_path();
     if (!parent.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(parent, ec);
     }
 
-    std::error_code ec;
-    bool writeHeader = !std::filesystem::exists(path, ec) || std::filesystem::file_size(path, ec) == 0;
+    bool allSucceeded = true;
+    std::filesystem::path currentPath;
+    std::wofstream file;
 
-    std::wofstream f(filePath, std::ios::app);
-    if (!f.is_open()) return;
+    auto openMonthlyFile = [&](const PowerSample& sample) -> bool {
+        std::filesystem::path monthlyPath = BuildMonthlyHistoryPath(basePath, GetLocalMonthKey(sample.timestamp));
+        if (monthlyPath == currentPath && file.is_open()) {
+            return true;
+        }
 
-    if (writeHeader) {
-        f << L"本地时间,功率(W)\r\n";
+        if (file.is_open()) {
+            file.close();
+        }
+
+        std::error_code ec;
+        bool writeHeader = !std::filesystem::exists(monthlyPath, ec) || std::filesystem::file_size(monthlyPath, ec) == 0;
+
+        file.open(monthlyPath, std::ios::app);
+        if (!file.is_open()) {
+            return false;
+        }
+
+        currentPath = std::move(monthlyPath);
+        if (writeHeader) {
+            file << kHistoryCsvHeader << L"\r\n";
+            if (file.fail()) {
+                file.close();
+                return false;
+            }
+        }
+        return true;
+    };
+
+    for (const auto& sample : m_pendingPersist) {
+        if (!openMonthlyFile(sample)) {
+            allSucceeded = false;
+            break;
+        }
+
+        file << FormatLocalTimestamp(sample.timestamp)
+             << L"," << std::fixed << std::setprecision(2) << sample.watts
+             << L"\r\n";
+        if (file.fail()) {
+            allSucceeded = false;
+            break;
+        }
     }
 
-    for (const auto& s : m_pendingPersist) {
-        f << FormatLocalTimestamp(s.timestamp)
-          << L"," << std::fixed << std::setprecision(2) << s.watts
-          << L"\r\n";
+    if (file.is_open()) {
+        file.flush();
     }
 
-    if (!f.fail()) {
+    if (allSucceeded) {
         m_pendingPersist.clear();
     }
 }
@@ -156,79 +338,27 @@ void PowerHistory::LoadFromFile(const std::wstring& filePath) {
         return;
     }
 
-    std::wifstream f(filePath);
-    if (!f.is_open()) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_realtime.clear();
-        m_longterm.clear();
-        m_pendingPersist.clear();
-        m_lastMinTs = 0.0;
-        return;
-    }
-
     const double now = Now();
     const double realtimeCutoff = now - 600.0;          // tooltip 最近10分钟
     const double longCutoff = now - 7 * 24 * 3600.0;    // 保留最近7天分钟级样本
 
     std::deque<PowerSample> loadedRealtime;
     std::deque<PowerSample> loadedLongterm;
-    std::wstring line;
-    bool firstLine = true;
     double lastMinTs = 0.0;
-
-    while (std::getline(f, line)) {
-        if (!line.empty() && line.back() == L'\r') {
-            line.pop_back();
-        }
-        if (line.empty()) {
+    auto recoveryPaths = CollectRecoveryHistoryPaths(filePath, longCutoff, now);
+    bool openedAnyFile = false;
+    for (const auto& historyPath : recoveryPaths) {
+        std::wifstream stream(historyPath);
+        if (!stream.is_open()) {
             continue;
         }
-
-        if (firstLine) {
-            firstLine = false;
-            if (line == L"本地时间,功率(W)" || line == L"LocalTime,Watts") {
-                continue;
-            }
-        }
-
-        size_t commaPos = line.find(L',');
-        if (commaPos == std::wstring::npos) {
-            continue;
-        }
-
-        double timestamp = 0.0;
-        if (!TryParseLocalTimestamp(line.substr(0, commaPos), timestamp)) {
-            continue;
-        }
-
-        double watts = 0.0;
-        try {
-            watts = std::stod(line.substr(commaPos + 1));
-        } catch (...) {
-            continue;
-        }
-
-        PowerSample sample{ timestamp, watts };
-
-        if (sample.timestamp >= realtimeCutoff) {
-            loadedRealtime.push_back(sample);
-            while (loadedRealtime.size() > MAX_REALTIME) {
-                loadedRealtime.pop_front();
-            }
-        }
-
-        if (sample.timestamp >= longCutoff) {
-            loadedLongterm.push_back(sample);
-            while (loadedLongterm.size() > MAX_LONG) {
-                loadedLongterm.pop_front();
-            }
-            lastMinTs = std::floor(sample.timestamp / 60.0);
-        }
+        openedAnyFile = true;
+        LoadSamplesFromStream(stream, loadedRealtime, loadedLongterm, realtimeCutoff, longCutoff, lastMinTs);
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_realtime = std::move(loadedRealtime);
-    m_longterm = std::move(loadedLongterm);
+    m_realtime = openedAnyFile ? std::move(loadedRealtime) : std::deque<PowerSample>{};
+    m_longterm = openedAnyFile ? std::move(loadedLongterm) : std::deque<PowerSample>{};
     m_pendingPersist.clear();
     m_lastMinTs = lastMinTs;
 }
