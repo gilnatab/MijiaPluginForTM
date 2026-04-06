@@ -103,11 +103,6 @@ void CMijiaPowerPlugin::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* da
             ConfigManager::Instance().SetConfigDir(data);
             ConfigManager::Instance().Load();
 
-            auto& cfg = ConfigManager::Instance().Get();
-            if (cfg.enableRecording) {
-                m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
-            }
-
             // 启动采样线程
             StartSampling();
         }
@@ -249,10 +244,6 @@ void CMijiaPowerPlugin::DataRequired() {
         GetCurrentDirectoryW(MAX_PATH, buf);
         ConfigManager::Instance().SetConfigDir(buf);
         ConfigManager::Instance().Load();
-        auto& cfg = ConfigManager::Instance().Get();
-        if (cfg.enableRecording) {
-            m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
-        }
         StartSampling();
     }
 }
@@ -275,11 +266,6 @@ ITMPlugin::OptionReturn CMijiaPowerPlugin::ShowOptionsDialog(void* hParent) {
     if (changed) {
         // 配置已更新，重新连接设备
         DisconnectDevice();
-        // 重新加载历史（如果刚启用记录）
-        auto& cfg = ConfigManager::Instance().Get();
-        if (cfg.enableRecording && !m_history.HasData()) {
-            m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
-        }
         return OR_OPTION_CHANGED;
     }
     return OR_OPTION_UNCHANGED;

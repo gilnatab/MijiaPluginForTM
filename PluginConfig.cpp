@@ -23,7 +23,7 @@ std::wstring ConfigManager::IniPath() const {
 }
 
 std::wstring ConfigManager::GetHistoryFilePath() const {
-    return m_dir + L"\\MijiaPower_history.json";
+    return m_dir + L"\\MijiaPower_history.csv";
 }
 
 std::wstring ConfigManager::ReadIniString(const std::wstring& section, const std::wstring& key,

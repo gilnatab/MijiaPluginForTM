@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "PowerHistory.h"
 #include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <sstream>
 #include <fstream>
@@ -12,6 +13,16 @@ double PowerHistory::Now() {
 }
 
 PowerHistory::PowerHistory() = default;
+
+std::wstring PowerHistory::FormatLocalTimestamp(double timestamp) {
+    std::time_t timeValue = static_cast<std::time_t>(timestamp);
+    std::tm localTime{};
+    localtime_s(&localTime, &timeValue);
+
+    wchar_t buffer[32]{};
+    wcsftime(buffer, _countof(buffer), L"%Y-%m-%d %H:%M:%S", &localTime);
+    return buffer;
+}
 
 void PowerHistory::AddSample(double watts) {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -27,6 +38,7 @@ void PowerHistory::AddSample(double watts) {
     if (curMin > m_lastMinTs) {
         m_lastMinTs = curMin;
         m_longterm.push_back(s);
+        m_pendingPersist.push_back(s);
         while (m_longterm.size() > MAX_LONG)
             m_longterm.pop_front();
     }
@@ -87,10 +99,11 @@ PowerStats PowerHistory::GetLongStats(int hours) const {
     return CalcStats(GetLongSamples(hours));
 }
 
-// ─── 持久化（极简 JSON，无第三方库）────
+// ─── 持久化（追加 CSV，无第三方库）────
 void PowerHistory::SaveToFile(const std::wstring& filePath) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (filePath.empty()) return;
+    if (m_pendingPersist.empty()) return;
 
     std::filesystem::path path(filePath);
     auto parent = path.parent_path();
@@ -99,41 +112,30 @@ void PowerHistory::SaveToFile(const std::wstring& filePath) const {
         std::filesystem::create_directories(parent, ec);
     }
 
-    std::wofstream f(filePath);
+    std::error_code ec;
+    bool writeHeader = !std::filesystem::exists(path, ec) || std::filesystem::file_size(path, ec) == 0;
+
+    std::wofstream f(filePath, std::ios::app);
     if (!f.is_open()) return;
-    f << L"[";
-    bool first = true;
-    for (const auto& s : m_longterm) {
-        if (!first) f << L",";
-        f << L"{\"t\":" << std::fixed << std::setprecision(1) << s.timestamp
-          << L",\"w\":" << std::setprecision(2) << s.watts << L"}";
-        first = false;
+
+    if (writeHeader) {
+        f << L"LocalTime,Watts\r\n";
     }
-    f << L"]";
+
+    for (const auto& s : m_pendingPersist) {
+        f << FormatLocalTimestamp(s.timestamp)
+          << L"," << std::fixed << std::setprecision(2) << s.watts
+          << L"\r\n";
+    }
+
+    if (!f.fail()) {
+        m_pendingPersist.clear();
+    }
 }
 
 void PowerHistory::LoadFromFile(const std::wstring& filePath) {
-    std::wifstream f(filePath);
-    if (!f.is_open()) return;
-    std::wstring content((std::istreambuf_iterator<wchar_t>(f)), std::istreambuf_iterator<wchar_t>());
-
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_longterm.clear();
-
-    // 简单解析 JSON 数组
-    size_t pos = 0;
-    while (pos < content.size()) {
-        auto ts = content.find(L"\"t\":", pos);
-        auto ws = content.find(L"\"w\":", pos);
-        if (ts == std::wstring::npos || ws == std::wstring::npos) break;
-        try {
-            double t = std::stod(content.substr(ts+4));
-            double w = std::stod(content.substr(ws+4));
-            m_longterm.push_back({ t, w });
-            if (m_longterm.size() > MAX_LONG) m_longterm.pop_front();
-        } catch (...) {}
-        pos = std::max(ts, ws) + 4;
-    }
-    if (!m_longterm.empty())
-        m_lastMinTs = std::floor(m_longterm.back().timestamp / 60.0);
+    (void)filePath;
+    // CSV 历史文件仅用于追加导出，不在启动时回读。
+    m_pendingPersist.clear();
 }

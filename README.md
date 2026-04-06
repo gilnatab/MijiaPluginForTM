@@ -281,11 +281,14 @@ python -m miio.extract_tokens
 ```
 %AppData%\TrafficMonitor\plugins\
   MijiaPower.ini          ← 设备信息和选项
-  MijiaPower_history.json ← 功率历史记录（如果启用）
+  MijiaPower_history.csv  ← 功率历史记录（如果启用）
 ```
 
 说明：
-- `MijiaPower_history.json` 会在启用历史记录且插件采集到功率数据后自动创建
+- `MijiaPower_history.csv` 会在启用历史记录且插件采集到功率数据后自动创建
+- CSV 采用追加写入方式，不会在启动时回读历史文件
+- 时间列使用用户系统本地时区格式化输出，便于直接查看
+- CSV 首行包含标题，默认列为 `LocalTime,Watts`
 - 历史记录会在运行中按约 60 秒周期定期保存
 
 ---
