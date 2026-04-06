@@ -20,9 +20,19 @@
 
 1. **获取 IP 和 Token** → 使用 [Xiaomi Cloud Tokens Extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor/releases)
 2. **打开插件目录** → TrafficMonitor 右键 → 选项 → 常规设置 → 下滑找到插件管理 → 打开插件目录
-3. **放入 DLL** → 将 `MijiaPower.dll` 复制到目录内
-4. **重启 TrafficMonitor** → 完全退出后重新启动
-5. **填写配置** → 在插件选项中输入 IP 和 Token，点击"测试连接"
+3. **获取 DLL** → 从 GitHub Release 下载，或从 GitHub Actions 的构建产物中获取 `MijiaPower.dll`
+4. **放入 DLL** → 将 `MijiaPower.dll` 复制到目录内
+5. **重启 TrafficMonitor** → 完全退出后重新启动
+6. **填写配置** → 在插件选项中输入 IP 和 Token，点击"测试连接"
+
+---
+
+## 支持说明
+
+- 插件会通过 `miIO.info` 获取设备型号，并使用**精确型号匹配**选择功率属性
+- 当前已知兼容型号：`cuco.plug.v3`、`chuangmi.plug.212a01`
+- `chuangmi.plug.212a01` 的功率属性为 `siid=5, piid=6`，原始值除以 `100` 后得到瓦特值
+- 非精确匹配型号不会套用 `chuangmi.plug.212a01` 的映射，避免误读未知型号的属性
 
 ---
 
@@ -235,6 +245,7 @@ python -m miio.extract_tokens
 | 没有显示 | 看不到功率数值 | 确认 DLL 文件在 plugins 目录中 |
 | 数据异常 | 显示 0W 或错误值 | 检查设备是否开启，重启插件 |
 | Token 失败 | 工具无法提取 | 确保米家账户密码正确，网络正常 |
+| 型号不兼容 | 测试连接成功但功率异常 | 先确认 `miIO.info` 返回的型号是否为 `cuco.plug.v3` 或 `chuangmi.plug.212a01` |
 
 ### 高级配置选项
 
@@ -303,3 +314,19 @@ python -m miio.extract_tokens
 ## 开发依赖
 
 插件完全无第三方依赖，所有加密算法（AES-128-CBC、MD5）均为纯 C++ 实现，仅依赖 Windows 系统 API（ws2_32.lib、comctl32.lib）。
+
+---
+
+## 构建与发布
+
+### GitHub Actions
+
+- `Build DLL` 会在推送到 `main` 或 `support/**` 分支时运行，也支持手动触发
+- 构建产物包含 `MijiaPower.dll` 和 `MijiaPower.pdb`
+- `Release DLL` 会在推送 `v*` 标签时创建 GitHub Release，也支持手动输入 `tag_name` 触发
+
+### 本地编译
+
+- 运行仓库根目录下的 `compile.ps1`
+- 或使用 Visual Studio / MSBuild 编译 `Release | x64`
+- 默认输出目录为 `bin/Release/x64/`

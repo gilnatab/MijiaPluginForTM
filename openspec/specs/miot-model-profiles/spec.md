@@ -1,7 +1,7 @@
 # miot-model-profiles Specification
 
 ## Purpose
-TBD - created by archiving change add-chuangmi-plug-212a01-support. Update Purpose after archive.
+Define exact-model MIOT property profiles for supported Xiaomi plug models so the plugin reads the correct power property and applies the correct scaling for each supported device.
 ## Requirements
 ### Requirement: Exact model matching for MIOT property profiles
 The system SHALL select model-specific MIOT property mappings only when the device model string returned by `miIO.info` exactly matches a supported model profile identifier.
