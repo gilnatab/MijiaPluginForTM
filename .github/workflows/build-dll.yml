@@ -2,9 +2,6 @@ name: Build DLL
 
 on:
   push:
-    branches:
-      - main
-      - support/**
   pull_request:
   workflow_dispatch:
 

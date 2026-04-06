@@ -328,7 +328,7 @@ python -m miio.extract_tokens
 
 ### GitHub Actions
 
-- `Build DLL` 会在推送到 `main` 或 `support/**` 分支时运行，也支持手动触发
+- `Build DLL` 会在任意分支推送时运行，也支持 `pull_request` 和手动触发
 - 构建产物包含 `MijiaPower.dll` 和 `MijiaPower.pdb`
 - `Release DLL` 会在推送 `v*` 标签时创建 GitHub Release，也支持手动输入 `tag_name` 触发
 
