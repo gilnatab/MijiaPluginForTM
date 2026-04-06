@@ -22,8 +22,8 @@ std::wstring ConfigManager::IniPath() const {
     return m_dir + L"\\MijiaPower.ini";
 }
 
-std::wstring ConfigManager::GetHistoryFilePath() const {
-    return m_dir + L"\\MijiaPower_history.json";
+std::wstring ConfigManager::GetMonthlyHistoryDirectory() const {
+    return m_dir + L"\\MijiaPower_history";
 }
 
 std::wstring ConfigManager::ReadIniString(const std::wstring& section, const std::wstring& key,

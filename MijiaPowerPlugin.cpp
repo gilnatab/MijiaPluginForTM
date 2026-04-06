@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "MijiaPowerPlugin.h"
 #include "OptionsDlg.h"
+#include "VersionInfo.h"
 #include <sstream>
 #include <iomanip>
 
@@ -102,10 +103,9 @@ void CMijiaPowerPlugin::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* da
             m_initialized = true;
             ConfigManager::Instance().SetConfigDir(data);
             ConfigManager::Instance().Load();
-
             auto& cfg = ConfigManager::Instance().Get();
             if (cfg.enableRecording) {
-                m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
+                m_history.LoadFromFile(ConfigManager::Instance().GetMonthlyHistoryDirectory());
             }
 
             // 启动采样线程
@@ -195,7 +195,7 @@ void CMijiaPowerPlugin::PersistHistoryIfEnabled() const {
         return;
     }
 
-    auto historyPath = ConfigManager::Instance().GetHistoryFilePath();
+    auto historyPath = ConfigManager::Instance().GetMonthlyHistoryDirectory();
     if (historyPath.empty()) {
         return;
     }
@@ -251,7 +251,7 @@ void CMijiaPowerPlugin::DataRequired() {
         ConfigManager::Instance().Load();
         auto& cfg = ConfigManager::Instance().Get();
         if (cfg.enableRecording) {
-            m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
+            m_history.LoadFromFile(ConfigManager::Instance().GetMonthlyHistoryDirectory());
         }
         StartSampling();
     }
@@ -260,11 +260,11 @@ void CMijiaPowerPlugin::DataRequired() {
 const wchar_t* CMijiaPowerPlugin::GetInfo(PluginInfoIndex index) {
     switch (index) {
     case TMI_NAME:        return L"米家插座功率";
-    case TMI_DESCRIPTION: return L"实时显示米家/酷控智能插座的功率，支持历史记录";
+    case TMI_DESCRIPTION: return MIJIA_POWER_FILE_DESCRIPTION_W;
     case TMI_AUTHOR:      return L"MijiaPlug";
-    case TMI_COPYRIGHT:   return L"2024 MijiaPlug";
+    case TMI_COPYRIGHT:   return MIJIA_POWER_COPYRIGHT_W;
     case TMI_URL:         return L"";
-    case TMI_VERSION:     return L"1.0.0";
+    case TMI_VERSION:     return MIJIA_POWER_VERSION_STRING_W;
     default:              return L"";
     }
 }
@@ -275,11 +275,6 @@ ITMPlugin::OptionReturn CMijiaPowerPlugin::ShowOptionsDialog(void* hParent) {
     if (changed) {
         // 配置已更新，重新连接设备
         DisconnectDevice();
-        // 重新加载历史（如果刚启用记录）
-        auto& cfg = ConfigManager::Instance().Get();
-        if (cfg.enableRecording && !m_history.HasData()) {
-            m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
-        }
         return OR_OPTION_CHANGED;
     }
     return OR_OPTION_UNCHANGED;
