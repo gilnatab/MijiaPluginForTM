@@ -17,4 +17,4 @@
 - [x] 3.1 Update `README.md` to list `chuangmi.plug.212a01` as a supported exact-match model
 - [x] 3.2 Document the model-specific power property and scaling used for `chuangmi.plug.212a01`
 - [x] 3.3 Verify the implementation against a real `chuangmi.plug.212a01` device and confirm the returned watt value is plausible
-- [ ] 3.4 Verify that the legacy supported model path still works after the change
+- [x] 3.4 Verify that the legacy supported model path still works after the change
