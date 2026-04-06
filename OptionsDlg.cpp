@@ -43,26 +43,22 @@ struct DlgState {
     HWND hBtnTest = nullptr, hBtnClearHistory = nullptr;
 };
 
-static int DeleteHistoryFiles(const std::wstring& baseFilePath) {
-    if (baseFilePath.empty()) {
+static int DeleteHistoryFiles(const std::wstring& monthlyFilePrefix) {
+    if (monthlyFilePrefix.empty()) {
         return 0;
     }
 
-    std::filesystem::path basePath(baseFilePath);
+    std::filesystem::path prefixPath(monthlyFilePrefix);
     std::error_code ec;
     int deletedCount = 0;
 
-    if (std::filesystem::remove(basePath, ec)) {
-        ++deletedCount;
-    }
-
-    auto parent = basePath.parent_path();
+    auto parent = prefixPath.parent_path();
     if (parent.empty() || !std::filesystem::exists(parent, ec)) {
         return deletedCount;
     }
 
-    const std::wstring prefix = basePath.stem().wstring() + L"-";
-    const std::wstring suffix = basePath.extension().wstring();
+    const std::wstring prefix = prefixPath.filename().wstring() + L"-";
+    const std::wstring suffix = L".csv";
     for (const auto& entry : std::filesystem::directory_iterator(parent, ec)) {
         if (ec || !entry.is_regular_file()) {
             continue;
@@ -251,7 +247,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         } else if (id == IDC_BTN_CLEARHISTORY) {
             if (MessageBoxW(hWnd, L"确定要清除所有功率历史记录吗？此操作不可撤销。",
                             L"确认", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                const int deletedCount = DeleteHistoryFiles(ConfigManager::Instance().GetHistoryFilePath());
+                const int deletedCount = DeleteHistoryFiles(ConfigManager::Instance().GetMonthlyHistoryFilePrefix());
                 if (deletedCount > 0) {
                     SetWindowTextW(st->hStaticStatus, L"历史记录已清除");
                 } else {

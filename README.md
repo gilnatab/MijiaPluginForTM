@@ -290,6 +290,7 @@ python -m miio.extract_tokens
 - 时间列使用用户系统本地时区格式化输出，便于直接查看
 - CSV 首行包含中文标题，默认列为 `本地时间,功率(W)`
 - 历史记录会在运行中按约 60 秒周期定期保存
+- “清除历史”会删除配置目录下全部 `MijiaPower_history-YYYY-MM.csv` 月文件
 
 ---
 

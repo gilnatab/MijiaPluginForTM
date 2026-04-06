@@ -104,7 +104,7 @@ void CMijiaPowerPlugin::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* da
             ConfigManager::Instance().Load();
             auto& cfg = ConfigManager::Instance().Get();
             if (cfg.enableRecording) {
-                m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
+                m_history.LoadFromFile(ConfigManager::Instance().GetMonthlyHistoryFilePrefix());
             }
 
             // 启动采样线程
@@ -194,7 +194,7 @@ void CMijiaPowerPlugin::PersistHistoryIfEnabled() const {
         return;
     }
 
-    auto historyPath = ConfigManager::Instance().GetHistoryFilePath();
+    auto historyPath = ConfigManager::Instance().GetMonthlyHistoryFilePrefix();
     if (historyPath.empty()) {
         return;
     }
@@ -250,7 +250,7 @@ void CMijiaPowerPlugin::DataRequired() {
         ConfigManager::Instance().Load();
         auto& cfg = ConfigManager::Instance().Get();
         if (cfg.enableRecording) {
-            m_history.LoadFromFile(ConfigManager::Instance().GetHistoryFilePath());
+            m_history.LoadFromFile(ConfigManager::Instance().GetMonthlyHistoryFilePrefix());
         }
         StartSampling();
     }
